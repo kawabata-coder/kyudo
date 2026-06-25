@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>弓道フォーム分析</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:system-ui,-apple-system,sans-serif}
+
+        #app{position:relative;width:100vw;height:100vh}
+
+        /* カメラ映像 — object-fit:contain でランドマーク座標と正確に対応 */
+        #video{
+            position:absolute;inset:0;width:100%;height:100%;
+            object-fit:contain;background:#000
+        }
+        #canvas{
+            position:absolute;inset:0;width:100%;height:100%;
+            pointer-events:none
+        }
+
+        /* ── 角度バッジ ─────────────────────────────── */
+        .badge{
+            position:absolute;display:none;
+            padding:4px 10px 5px;border-radius:7px;
+            font-size:14px;font-weight:700;letter-spacing:.3px;
+            background:rgba(0,0,0,.78);border:2px solid;
+            white-space:nowrap;pointer-events:none
+        }
+        .c-cyan{color:#00e5ff;border-color:#00e5ff}
+        .c-red {color:#ff5252;border-color:#ff5252}
+        .c-grn {color:#69f0ae;border-color:#69f0ae}
+
+        /* ── ヘッダー ────────────────────────────────── */
+        #header{
+            position:absolute;top:0;left:0;right:0;
+            padding:14px 16px 28px;
+            background:linear-gradient(to bottom,rgba(0,0,0,.72),transparent);
+            color:#fff;font-size:16px;font-weight:600;
+            pointer-events:none;z-index:10
+        }
+
+        /* ── フッターボタン ──────────────────────────── */
+        #footer{
+            position:absolute;bottom:0;left:0;right:0;
+            padding:14px 16px 22px;
+            background:linear-gradient(to top,rgba(0,0,0,.55),transparent);
+            display:flex;justify-content:center;gap:14px;z-index:10
+        }
+        .btn{
+            background:rgba(255,255,255,.18);color:#fff;
+            border:1.5px solid rgba(255,255,255,.45);
+            padding:9px 20px;border-radius:22px;font-size:13px;cursor:pointer;
+            -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)
+        }
+        .btn:active{background:rgba(255,255,255,.4)}
+
+        /* ── ローディング画面 ────────────────────────── */
+        #loading{
+            position:absolute;inset:0;display:flex;flex-direction:column;
+            align-items:center;justify-content:center;
+            background:rgba(0,0,0,.93);color:#fff;
+            gap:20px;text-align:center;padding:36px;z-index:50
+        }
+        .spin{
+            width:46px;height:46px;
+            border:4px solid rgba(255,255,255,.15);
+            border-top-color:#00e5ff;border-radius:50%;
+            animation:rot .85s linear infinite
+        }
+        @keyframes rot{to{transform:rotate(360deg)}}
+        #load-msg{font-size:15px;line-height:1.9;color:#bbb}
+        #load-msg b{display:block;font-size:18px;color:#fff;margin-bottom:6px}
+
+        /* ── 人物未検出ヒント ─────────────────────────── */
+        #noperson{
+            position:absolute;bottom:72px;left:0;right:0;
+            text-align:center;color:rgba(255,255,255,.55);font-size:13px;
+            display:none;pointer-events:none;z-index:10
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <video id="video" playsinline autoplay muted></video>
+    <canvas id="canvas"></canvas>
+
+    <!-- 角度バッジ -->
+    <div class="badge c-cyan" id="b-re">右肘 --°</div>
+    <div class="badge c-cyan" id="b-le">左肘 --°</div>
+    <div class="badge c-red"  id="b-sh">肩水平 --°</div>
+    <div class="badge c-cyan" id="b-hi">腰水平 --°</div>
+    <div class="badge c-grn"  id="b-ft">足水平 --°</div>
+
+    <div id="header">🏹 弓道フォーム分析</div>
+    <div id="noperson">人物を画面に映してください</div>
+
+    <div id="footer">
+        <button class="btn" id="btn-flip">↔ 左右反転</button>
+        <button class="btn" id="btn-cam">📷 前後カメラ</button>
+    </div>
+
+    <div id="loading">
+        <div class="spin"></div>
+        <div id="load-msg">
+            <b>🏹 弓道フォーム分析</b>
+            AIモデルを読み込んでいます…<br>
+            <small>初回は20〜30秒かかる場合があります<br>安定したWi-Fi接続を推奨</small>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+// ================================================================
+//  MediaPipe Tasks Vision — ES Module (jsDelivr CDN)
+// ================================================================
+import { PoseLandmarker, FilesetResolver }
+    from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs';
+
+// ── DOM ──────────────────────────────────────────────────────────
+const video   = document.getElementById('video');
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const loading = document.getElementById('loading');
+const loadMsg = document.getElementById('load-msg');
+const noperson= document.getElementById('noperson');
+
+// ── State ────────────────────────────────────────────────────────
+let landmarker, rafId;
+let flipped = false;
+let facingMode = 'environment';   // 後ろカメラ優先
+
+// ── MediaPipe ランドマーク番号 ───────────────────────────────────
+const K = {
+    LS:11, RS:12,   // 肩
+    LE:13, RE:14,   // 肘
+    LW:15, RW:16,   // 手首
+    LH:23, RH:24,   // 股関節
+    LK:25, RK:26,   // 膝
+    LA:27, RA:28    // 足首
+};
+
+// ── 骨格定義 [from, to, 色] ──────────────────────────────────────
+const BONES = [
+    [K.LS, K.RS, '#4caf50'],                          // 肩ライン（緑）
+    [K.LS, K.LE, '#42a5f5'], [K.LE, K.LW, '#42a5f5'],// 左腕（青）弓手
+    [K.RS, K.RE, '#ffa726'], [K.RE, K.RW, '#ffa726'],// 右腕（橙）馬手
+    [K.LS, K.LH, '#4caf50'], [K.RS, K.RH, '#4caf50'],// 体幹
+    [K.LH, K.RH, '#4caf50'],                          // 腰ライン
+    [K.LH, K.LK, '#4caf50'], [K.LK, K.LA, '#4caf50'],// 左脚
+    [K.RH, K.RK, '#4caf50'], [K.RK, K.RA, '#4caf50'] // 右脚
+];
+
+// ── 座標変換（正規化→キャンバスpx） ─────────────────────────────
+function getT() {
+    const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+    const cw = canvas.width,          ch = canvas.height;
+    const s  = Math.min(cw / vw, ch / vh);
+    return { s, ox: (cw - vw*s)/2, oy: (ch - vh*s)/2, vw, vh };
+}
+const toX = (lm, t) => lm.x * t.vw * t.s + t.ox;
+const toY = (lm, t) => lm.y * t.vh * t.s + t.oy;
+
+// ── 数学ユーティリティ ───────────────────────────────────────────
+function angle3(a, b, c) {
+    const [ax,ay] = [a.x-b.x, a.y-b.y];
+    const [cx,cy] = [c.x-b.x, c.y-b.y];
+    const v = (ax*cx + ay*cy) / (Math.hypot(ax,ay) * Math.hypot(cx,cy) || 1);
+    return Math.round(Math.acos(Math.max(-1, Math.min(1, v))) * 180 / Math.PI);
+}
+const tiltDeg = (a, b) =>
+    Math.round(Math.atan2(b.y - a.y, b.x - a.x) * 1800 / Math.PI) / 10;
+const midLm = (a, b) => ({ x: (a.x+b.x)/2, y: (a.y+b.y)/2 });
+const isVis  = (ls, i) => (ls[i]?.visibility ?? 0) >= 0.45;
+
+// ── 骨格描画 ─────────────────────────────────────────────────────
+function drawPose(ls) {
+    const t = getT();
+
+    // 中央垂直ガイドライン（緑破線）
+    ctx.save();
+    ctx.setLineDash([12, 8]);
+    ctx.strokeStyle = 'rgba(0,255,60,0.28)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(t.ox + t.vw*t.s/2, t.oy);
+    ctx.lineTo(t.ox + t.vw*t.s/2, t.oy + t.vh*t.s);
+    ctx.stroke();
+    ctx.restore();
+
+    // 骨格ライン
+    ctx.lineCap = 'round';
+    for (const [ai, bi, col] of BONES) {
+        const a = ls[ai], b = ls[bi];
+        if (!a || !b || a.visibility < 0.35 || b.visibility < 0.35) continue;
+        ctx.beginPath();
+        ctx.strokeStyle = col; ctx.lineWidth = 4;
+        ctx.moveTo(toX(a,t), toY(a,t));
+        ctx.lineTo(toX(b,t), toY(b,t));
+        ctx.stroke();
+    }
+
+    // 関節点
+    for (const i of Object.values(K)) {
+        const lm = ls[i];
+        if (!lm || lm.visibility < 0.35) continue;
+        ctx.beginPath();
+        ctx.fillStyle = '#ffffff'; ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+        ctx.arc(toX(lm,t), toY(lm,t), 6, 0, 2*Math.PI);
+        ctx.fill(); ctx.stroke();
+    }
+}
+
+// ── バッジ位置決め ───────────────────────────────────────────────
+function placeBadge(el, nlx, nly, dx, dy) {
+    const t = getT();
+    const x = nlx * t.vw * t.s + t.ox + dx;
+    const y = nly * t.vh * t.s + t.oy + dy;
+    el.style.left    = Math.max(2, x) + 'px';
+    el.style.top     = Math.max(2, y) + 'px';
+    el.style.display = 'block';
+}
+const hideBadge = (el) => { el.style.display = 'none'; };
+
+// ── 角度バッジ更新 ───────────────────────────────────────────────
+function updateBadges(ls) {
+    const g = (id) => document.getElementById(id);
+
+    // 右肘（馬手）
+    const re = g('b-re');
+    if (isVis(ls,K.RS) && isVis(ls,K.RE) && isVis(ls,K.RW)) {
+        re.textContent = `右肘 ${angle3(ls[K.RS], ls[K.RE], ls[K.RW])}°`;
+        placeBadge(re, ls[K.RE].x, ls[K.RE].y, -102, -5);
+    } else hideBadge(re);
+
+    // 左肘（弓手）
+    const le = g('b-le');
+    if (isVis(ls,K.LS) && isVis(ls,K.LE) && isVis(ls,K.LW)) {
+        le.textContent = `左肘 ${angle3(ls[K.LS], ls[K.LE], ls[K.LW])}°`;
+        placeBadge(le, ls[K.LE].x, ls[K.LE].y, 16, -5);
+    } else hideBadge(le);
+
+    // 肩水平
+    const sh = g('b-sh');
+    if (isVis(ls,K.LS) && isVis(ls,K.RS)) {
+        const m = midLm(ls[K.LS], ls[K.RS]);
+        const deg = tiltDeg(ls[K.RS], ls[K.LS]);
+        sh.textContent = `肩水平 ${deg>0?'+':''}${deg}°`;
+        placeBadge(sh, m.x, m.y, 50, -36);
+    } else hideBadge(sh);
+
+    // 腰水平
+    const hi = g('b-hi');
+    if (isVis(ls,K.LH) && isVis(ls,K.RH)) {
+        const m = midLm(ls[K.LH], ls[K.RH]);
+        const deg = tiltDeg(ls[K.RH], ls[K.LH]);
+        hi.textContent = `腰水平 ${deg>0?'+':''}${deg}°`;
+        placeBadge(hi, m.x, m.y, -118, 5);
+    } else hideBadge(hi);
+
+    // 足水平
+    const ft = g('b-ft');
+    const okLA = (ls[K.LA]?.visibility??0) > 0.30;
+    const okRA = (ls[K.RA]?.visibility??0) > 0.30;
+    if (okLA && okRA) {
+        const m = midLm(ls[K.LA], ls[K.RA]);
+        const deg = tiltDeg(ls[K.RA], ls[K.LA]);
+        ft.textContent = `足水平 ${deg>0?'+':''}${deg}°`;
+        placeBadge(ft, m.x, m.y, 42, 15);
+    } else hideBadge(ft);
+}
+
+// ── 検出ループ ───────────────────────────────────────────────────
+function loop() {
+    rafId = requestAnimationFrame(loop);
+    if (!landmarker || video.readyState < 2) return;
+
+    // キャンバスをDOM要素サイズに同期
+    canvas.width  = canvas.clientWidth;
+    canvas.height = canvas.clientHeight;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const result = landmarker.detectForVideo(video, performance.now());
+    if (result.landmarks?.length) {
+        noperson.style.display = 'none';
+        drawPose(result.landmarks[0]);
+        updateBadges(result.landmarks[0]);
+    } else {
+        noperson.style.display = 'block';
+        document.querySelectorAll('.badge').forEach(b => b.style.display = 'none');
+    }
+}
+
+// ── カメラ起動 ───────────────────────────────────────────────────
+async function startCamera(mode) {
+    video.srcObject?.getTracks().forEach(t => t.stop());
+    const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: mode, width:{ideal:1280}, height:{ideal:720} },
+        audio: false
+    });
+    video.srcObject = stream;
+    return video.play();
+}
+
+// ── 初期化 ───────────────────────────────────────────────────────
+async function init() {
+    try {
+        loadMsg.innerHTML = '<b>🏹 弓道フォーム分析</b>AIモデルを読み込んでいます…<br><small>初回は20〜30秒かかる場合があります</small>';
+
+        const vision = await FilesetResolver.forVisionTasks(
+            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+        );
+
+        landmarker = await PoseLandmarker.createFromOptions(vision, {
+            baseOptions: {
+                modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+                delegate: 'GPU'
+            },
+            runningMode: 'VIDEO',
+            numPoses: 1,
+            minPoseDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        loadMsg.innerHTML = '<b>カメラを起動中…</b>';
+        await startCamera(facingMode);
+
+        loading.style.display = 'none';
+        loop();
+
+    } catch (err) {
+        console.error(err);
+        document.querySelector('.spin').style.display = 'none';
+        loadMsg.innerHTML = `
+            <b style="color:#ff5252">⚠ 読み込みエラー</b><br>
+            ${err.message}<br><br>
+            <small>
+            ✔ カメラの許可を確認<br>
+            ✔ HTTPSまたはlocalhostが必要<br>
+            ✔ 安定したWi-Fi接続を確認<br><br>
+            <b>使い方：</b>このHTMLファイルをPCのローカルサーバー<br>
+            または GitHub Pages / Vercel にアップして開いてください
+            </small>
+        `;
+    }
+}
+
+// ── コントロール ─────────────────────────────────────────────────
+document.getElementById('btn-flip').addEventListener('click', () => {
+    flipped = !flipped;
+    const tf = flipped ? 'scaleX(-1)' : 'none';
+    video.style.transform  = tf;
+    canvas.style.transform = tf;
+});
+
+document.getElementById('btn-cam').addEventListener('click', async () => {
+    cancelAnimationFrame(rafId);
+    facingMode = facingMode === 'environment' ? 'user' : 'environment';
+    try {
+        await startCamera(facingMode);
+        loop();
+    } catch (e) {
+        alert(`カメラ切替に失敗しました: ${e.message}`);
+    }
+});
+
+init();
+</script>
+</body>
+</html>
