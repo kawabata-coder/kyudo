@@ -251,6 +251,34 @@
         }
         body.manual-mode .ph-snap{display:none!important}
 
+        /* 見直しモード：記録済みスロットをオレンジ枠で強調 */
+        body.review-mode .ph-slot.ph-done{
+            border-color:#ff9800;background:rgba(255,152,0,.12)
+        }
+        body.review-mode .ph-slot.ph-done:active{
+            background:rgba(255,152,0,.28)
+        }
+
+        /* ── 見直しモードトグル ── */
+        #review-toggle{
+            display:none;align-items:center;gap:7px;
+            font-size:12px;color:rgba(255,255,255,.75);
+            cursor:pointer;user-select:none
+        }
+        #review-toggle.visible{display:flex}
+        #review-toggle-sw{
+            width:36px;height:20px;border-radius:10px;
+            background:rgba(255,255,255,.2);position:relative;
+            transition:background .2s;flex-shrink:0
+        }
+        #review-toggle-sw::after{
+            content:'';position:absolute;top:3px;left:3px;
+            width:14px;height:14px;border-radius:50%;background:#fff;
+            transition:transform .2s
+        }
+        #review-toggle.on #review-toggle-sw{background:#ff9800}
+        #review-toggle.on #review-toggle-sw::after{transform:translateX(16px)}
+
         /* ── ヒント ── */
         #noperson{
             position:absolute;bottom:76px;left:0;right:0;
@@ -325,9 +353,15 @@
     <div id="header">
         <div id="title-row" style="display:flex;align-items:center;justify-content:space-between">
             <span>🏹 弓道フォーム分析</span>
-            <div id="auto-toggle" class="on" onclick="toggleAutoMode()">
-                <span id="auto-label">自動判定</span>
-                <div id="auto-toggle-sw"></div>
+            <div style="display:flex;align-items:center;gap:12px">
+                <div id="review-toggle" onclick="toggleReviewMode()">
+                    <span id="review-label">見直し</span>
+                    <div id="review-toggle-sw"></div>
+                </div>
+                <div id="auto-toggle" class="on" onclick="toggleAutoMode()">
+                    <span id="auto-label">自動判定</span>
+                    <div id="auto-toggle-sw"></div>
+                </div>
             </div>
         </div>
         <div id="tabs">
@@ -787,6 +821,20 @@ const PHASES=[
 let phaseCaptures={}, currentLandmarks=null;
 let lastPhaseKey=null, phaseHoldTimer=null, modalPhaseKey=null;
 let autoMode=true; // 自動判定ON/OFF
+let reviewMode=false; // 見直しモードON/OFF
+
+// ── 見直しモードトグル ──────────────────────────────────────
+window.toggleReviewMode=function toggleReviewMode(){
+    reviewMode=!reviewMode;
+    const tog=document.getElementById('review-toggle');
+    if(reviewMode){
+        tog.classList.add('on');
+        document.body.classList.add('review-mode');
+    }else{
+        tog.classList.remove('on');
+        document.body.classList.remove('review-mode');
+    }
+};
 
 // ── 自動判定トグル ──────────────────────────────────────────
 window.toggleAutoMode=function toggleAutoMode(){
@@ -821,7 +869,10 @@ function initPhaseStrip(){
             `<div class="ph-score" id="sc-${p.key}">―</div>`+
             `<button class="ph-snap" onclick="event.stopPropagation();capturePhase('${p.key}')">📸</button>`;
         slot.addEventListener('click',()=>{
-            if(autoMode){
+            if(reviewMode && phaseCaptures[p.key]?.videoTime!=null){
+                // 見直しモード＆記録済み → 記録時刻にジャンプ＆一時停止
+                jumpToCapture(p.key);
+            }else if(autoMode){
                 // 自動モード：キャプチャ済みならモーダル表示
                 openModal(p.key);
             }else{
@@ -831,6 +882,48 @@ function initPhaseStrip(){
         });
         strip.appendChild(slot);
     });
+}
+
+// ── 見直しジャンプ（見直しモード専用） ────────────────────
+async function jumpToCapture(key){
+    const cap=phaseCaptures[key];
+    if(!cap||cap.videoTime==null||mode!=='video'||!fileVideo.src) return;
+
+    // 指定時刻にシーク
+    fileVideo.pause();
+    fileVideo.currentTime=cap.videoTime;
+    document.getElementById('btn-play').textContent='▶ 再生';
+
+    // シーク完了を待つ
+    await new Promise(r=>{
+        const onSeeked=()=>{fileVideo.removeEventListener('seeked',onSeeked);r();};
+        fileVideo.addEventListener('seeked',onSeeked);
+        setTimeout(r,500); // タイムアウト保険
+    });
+
+    // 骨格を再検出・描画
+    if(fileVideo.readyState>=2){
+        syncCanvas();
+        ovCtx.clearRect(0,0,overlay.width,overlay.height);
+        try{
+            const result=landmarker.detectForVideo(fileVideo,performance.now());
+            const ls=result.landmarks?.[0]??null;
+            if(ls){
+                currentLandmarks=ls;
+                drawSkeleton(ls);
+                updateBadges(ls);
+                const pose=classifyPose(ls);
+                updateJudgePanel(ls,pose);
+            }
+        }catch(e){}
+    }
+
+    // スロットをフラッシュ
+    const slot=document.querySelector(`.ph-slot[data-key="${key}"]`);
+    if(slot){
+        slot.style.background='rgba(255,152,0,.35)';
+        setTimeout(()=>slot.style.background='',400);
+    }
 }
 
 // ── 手動キャプチャ（手動モード専用） ──────────────────────
@@ -917,7 +1010,9 @@ window.capturePhase=function capturePhase(key){
     const scoreText=jj.map(r=>`${r.name}${r.mark}`).join(' ');
     const mark=tot>=5?'◎':tot>=3?'○':'△';
     const cls=tot>=5?'sc-good':tot>=3?'sc-ok':'sc-bad';
-    phaseCaptures[key]={dataUrl:cap.toDataURL('image/jpeg',0.88),scoreText,mark};
+    // 動画時刻を記録（見直しジャンプ用）
+    const videoTime=(mode==='video'&&fileVideo.src)?fileVideo.currentTime:null;
+    phaseCaptures[key]={dataUrl:cap.toDataURL('image/jpeg',0.88),scoreText,mark,videoTime};
     const th=document.getElementById(`th-${key}`);
     if(th){const tc=th.getContext('2d');tc.drawImage(cap,0,0,240,170,0,0,62,44);}
     const sc=document.getElementById(`sc-${key}`);
@@ -1083,6 +1178,10 @@ async function switchMode(newMode){
     document.getElementById('cam-ctrl').style.display  = newMode==='cam'  ?'flex':'none';
     document.getElementById('vid-ctrl').style.display  = newMode==='video'?'flex':'none';
     document.getElementById('photo-ctrl').style.display= newMode==='photo'?'flex':'none';
+    // 見直しトグルは動画モードのみ表示
+    const revTog=document.getElementById('review-toggle');
+    if(newMode==='video') revTog.classList.add('visible');
+    else{ revTog.classList.remove('visible','on'); document.body.classList.remove('review-mode'); reviewMode=false; }
     if(newMode==='cam'){
         await landmarker.setOptions({runningMode:'VIDEO'});
         camVideo.classList.add('show');
