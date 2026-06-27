@@ -558,7 +558,20 @@ function classifyPose(ls){
     if(bothAboveShoulder)
         return {label:'打起し',emoji:'⬆',color:'#26c6da',phase:'uchiokoshi'};
 
-    // ⑤ 執弓の姿勢：両肘が深く曲がっている(<105°)→ 円相の形
+    // ⑤ 足踏み：足が広がり（腰幅以上）、腕が体側に下がっている
+    //   資料より：矢束を標準として外八文字（約60度）に踏み開く
+    const ankleVis=(ls[K.LA]?.visibility??0)>0.35&&(ls[K.RA]?.visibility??0)>0.35;
+    if(ankleVis){
+        const ankleW       = Math.abs(ls[K.LA].x - ls[K.RA].x);
+        const hipW         = Math.abs(ls[K.LH].x - ls[K.RH].x);
+        const feetWide     = (ankleW / Math.max(0.01, hipW)) > 1.05; // 足幅が腰幅以上
+        const armsDown     = lwY > hY-0.06 && rwY > hY-0.06;        // 手首が腰付近以下
+        const elbowsNatural = leAng > 120 && reAng > 120;            // 肘が深く曲がっていない
+        if(feetWide && armsDown && elbowsNatural)
+            return {label:'足踏み',emoji:'👣',color:'#a5d6a7',phase:'ashibumi'};
+    }
+
+    // ⑥ 執弓の姿勢：両肘が深く曲がっている(<105°)→ 円相の形
     //   弓構えより深く肘を曲げて腰付近または中間ゾーンに構える
     if(leAng<105 && reAng<105)
         return {label:'執弓の姿勢',emoji:'⭕',color:'#00e5ff',phase:'toriyu'};
@@ -673,6 +686,7 @@ function updateJudgePanel(ls,pose){
 // ================================================================
 const PHASES=[
     {key:'toriyu',    label:'執弓',   emoji:'⭕'},
+    {key:'ashibumi',  label:'足踏み', emoji:'👣'},
     {key:'dozukuri',  label:'胴造り', emoji:'🧍'},
     {key:'yugamae',   label:'弓構え', emoji:'🏹'},
     {key:'uchiokoshi',label:'打起し', emoji:'⬆'},
