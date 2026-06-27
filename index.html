@@ -59,6 +59,29 @@
         .c-red{color:#ff5252;border-color:#ff5252}
         .c-grn{color:#69f0ae;border-color:#69f0ae}
 
+        /* ── 姿勢判定パネル ── */
+        #judge-panel{
+            position:absolute;top:80px;left:10px;z-index:15;
+            background:rgba(0,0,0,.82);border:1.5px solid rgba(255,255,255,.25);
+            border-radius:12px;padding:10px 13px;min-width:155px;
+            display:none;pointer-events:none
+        }
+        #judge-panel.show{display:block}
+        #judge-phase{
+            font-size:13px;font-weight:700;color:#fff;
+            margin-bottom:7px;padding-bottom:6px;
+            border-bottom:1px solid rgba(255,255,255,.2)
+        }
+        .j-title{font-size:10px;color:rgba(255,255,255,.55);margin-bottom:3px}
+        .j-row{
+            display:flex;justify-content:space-between;align-items:center;
+            font-size:12px;color:#fff;margin:3px 0;gap:8px
+        }
+        .j-name{color:rgba(255,255,255,.8)}
+        .sc-good{color:#69f0ae;font-weight:700}
+        .sc-ok  {color:#ffeb3b;font-weight:700}
+        .sc-bad {color:#ff5252;font-weight:700}
+
         /* ── アップロードエリア ── */
         #upload-area{
             position:absolute;inset:0;display:none;
@@ -170,6 +193,15 @@
     <video id="file-video" playsinline loop></video>
     <canvas id="bg-canvas"></canvas>
     <canvas id="overlay"></canvas>
+
+    <!-- 姿勢判定パネル -->
+    <div id="judge-panel">
+        <div id="judge-phase">🧍 検出中…</div>
+        <div class="j-title">三重十文字</div>
+        <div class="j-row" id="jj1"><span class="j-name">①肩水平</span><span>--</span></div>
+        <div class="j-row" id="jj2"><span class="j-name">②腰水平</span><span>--</span></div>
+        <div class="j-row" id="jj3"><span class="j-name">③体軸</span><span>--</span></div>
+    </div>
 
     <!-- 角度バッジ -->
     <div class="badge c-cyan" id="b-re">右肘 --°</div>
@@ -391,8 +423,76 @@ function syncCanvas(){
 
 function onResult(r){
     const ls=r.landmarks?.[0]??null;
-    if(ls){noperson.style.display='none';drawSkeleton(ls);updateBadges(ls);}
-    else{noperson.style.display='block';hideAll();}
+    if(ls){
+        noperson.style.display='none';
+        drawSkeleton(ls);updateBadges(ls);updateJudgePanel(ls);
+    }else{
+        noperson.style.display='block';
+        hideAll();
+        document.getElementById('judge-panel').classList.remove('show');
+    }
+}
+
+// ── 射法八節フェーズ分類 ─────────────────────────────────────
+function classifyPose(ls){
+    const leAng = angle3(ls[K.LS],ls[K.LE],ls[K.LW]); // 弓手肘
+    const reAng = angle3(ls[K.RS],ls[K.RE],ls[K.RW]); // 馬手肘
+    const sY    = (ls[K.LS].y + ls[K.RS].y) / 2;      // 肩の高さ
+    const lwY   = ls[K.LW].y, rwY = ls[K.RW].y;
+
+    const bothAbove = lwY < sY-0.05 && rwY < sY-0.05;
+    const oneAbove  = lwY < sY-0.05 || rwY < sY-0.05;
+
+    // 会: 弓手ほぼ真っすぐ、馬手深く引いている
+    if(leAng > 155 && reAng < 110)
+        return {label:'会', emoji:'🎯', color:'#ff9800'};
+    // 残心
+    if(leAng > 135 && reAng > 135 && oneAbove)
+        return {label:'残心', emoji:'✨', color:'#e040fb'};
+    // 打起し〜引分け
+    if(bothAbove){
+        if(leAng > reAng+20)
+            return {label:'引分け', emoji:'↔', color:'#42a5f5'};
+        return {label:'打起し', emoji:'⬆', color:'#26c6da'};
+    }
+    // 弓構え・取矢
+    if(leAng>85 && leAng<145 && reAng>85 && reAng<145)
+        return {label:'弓構え（取矢）', emoji:'🏹', color:'#66bb6a'};
+    // 胴造り・足踏み
+    return {label:'胴造り・足踏み', emoji:'🧍', color:'#bdbdbd'};
+}
+
+// ── 三重十文字判定 ───────────────────────────────────────────
+function judgeJumonji(ls){
+    const sc=(v,t1,t2)=>v<t1?{mark:'◎',cls:'sc-good'}:v<t2?{mark:'○',cls:'sc-ok'}:{mark:'△',cls:'sc-bad'};
+    // ①肩の水平
+    const shT = Math.abs(tiltDeg(ls[K.RS],ls[K.LS]));
+    // ②腰の水平
+    const hiT = Math.abs(tiltDeg(ls[K.RH],ls[K.LH]));
+    // ③体軸の垂直（肩中点と腰中点の横ずれ）
+    const axD = Math.abs((ls[K.LS].x+ls[K.RS].x)/2 - (ls[K.LH].x+ls[K.RH].x)/2)*100;
+    return [
+        {name:'①肩水平', val:shT.toFixed(1)+'°', ...sc(shT,2,5)},
+        {name:'②腰水平', val:hiT.toFixed(1)+'°', ...sc(hiT,2,5)},
+        {name:'③体軸',   val:axD.toFixed(1)+'%', ...sc(axD,3,7)}
+    ];
+}
+
+// ── 判定パネル更新 ───────────────────────────────────────────
+function updateJudgePanel(ls){
+    const panel=document.getElementById('judge-panel');
+    if(!ls){panel.classList.remove('show');return;}
+    panel.classList.add('show');
+
+    const pose=classifyPose(ls);
+    document.getElementById('judge-phase').innerHTML=
+        `<span style="color:${pose.color}">${pose.emoji} ${pose.label}</span>`;
+
+    judgeJumonji(ls).forEach((r,i)=>{
+        document.getElementById(`jj${i+1}`).innerHTML=
+            `<span class="j-name">${r.name}</span>`+
+            `<span><span class="${r.cls}">${r.mark}</span> ${r.val}</span>`;
+    });
 }
 
 // ── 録画：開始 ──────────────────────────────────────────────
