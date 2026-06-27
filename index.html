@@ -552,7 +552,7 @@ function classifyPose(ls){
 
     // ③ 引分け：両手首が肩より上、弓手が馬手より20°以上伸びている（大三含む）
     if(bothAboveShoulder && leAng>reAng+20)
-        return {label:'引分け',emoji:'↔',color:'#42a5f5',phase:'hikiwake'};
+        return {label:'大三',emoji:'↔',color:'#42a5f5',phase:'hikiwake'};
 
     // ④ 打起し：両手首が肩より上、ほぼ左右対称
     if(bothAboveShoulder)
@@ -685,12 +685,11 @@ function updateJudgePanel(ls,pose){
 //  フェーズストリップ＆キャプチャシステム
 // ================================================================
 const PHASES=[
-    {key:'toriyu',    label:'執弓',   emoji:'⭕'},
     {key:'ashibumi',  label:'足踏み', emoji:'👣'},
     {key:'dozukuri',  label:'胴造り', emoji:'🧍'},
     {key:'yugamae',   label:'弓構え', emoji:'🏹'},
     {key:'uchiokoshi',label:'打起し', emoji:'⬆'},
-    {key:'hikiwake',  label:'引分け', emoji:'↔'},
+    {key:'hikiwake',  label:'大三',   emoji:'↔'},
     {key:'kai',       label:'会',     emoji:'🎯'},
     {key:'zanshin',   label:'残心',   emoji:'✨'},
 ];
