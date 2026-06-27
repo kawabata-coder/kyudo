@@ -533,31 +533,100 @@ const hideAll=()=>document.querySelectorAll('.badge').forEach(hideBadge);
 
 function updateBadges(ls){
     const g=id=>document.getElementById(id);
+    const t=getT();
+    const PX=lm=>lm.x*t.vw*t.s+t.ox;   // ランドマーク→画面ピクセルX
+    const PY=lm=>lm.y*t.vh*t.s+t.oy;   // ランドマーク→画面ピクセルY
+
+    // 表示するバッジを収集（edgeX=体から逃がす境界、dir=-1左/+1右、ay=縦位置）
+    const specs=[];
+
+    // 右肘（馬手・画面左）→ 肘の左へ
     const re=g('b-re');
     if(isVis(ls,K.RS)&&isVis(ls,K.RE)&&isVis(ls,K.RW)){
         re.textContent=`右肘 ${angle3(ls[K.RS],ls[K.RE],ls[K.RW])}°`;
-        place(re,ls[K.RE].x,ls[K.RE].y,-102,-5);
+        specs.push({el:re, edgeX:PX(ls[K.RE])-10, dir:-1, ay:PY(ls[K.RE])});
     }else hideBadge(re);
+
+    // 左肘（弓手・画面右）→ 肘の右へ
     const le=g('b-le');
     if(isVis(ls,K.LS)&&isVis(ls,K.LE)&&isVis(ls,K.LW)){
         le.textContent=`左肘 ${angle3(ls[K.LS],ls[K.LE],ls[K.LW])}°`;
-        place(le,ls[K.LE].x,ls[K.LE].y,16,-5);
+        specs.push({el:le, edgeX:PX(ls[K.LE])+10, dir:+1, ay:PY(ls[K.LE])});
     }else hideBadge(le);
+
+    // 肩水平 → 肩の外側（左）へ逃がす（体と重ならない）
     const sh=g('b-sh');
     if(isVis(ls,K.LS)&&isVis(ls,K.RS)){
-        const m=midLm(ls[K.LS],ls[K.RS]),d=tiltDeg(ls[K.RS],ls[K.LS]);
-        sh.textContent=`肩水平 ${d>0?'+':''}${d}°`;place(sh,m.x,m.y,50,-36);
+        const d=tiltDeg(ls[K.RS],ls[K.LS]);
+        sh.textContent=`肩水平 ${d>0?'+':''}${d}°`;
+        specs.push({el:sh, edgeX:Math.min(PX(ls[K.LS]),PX(ls[K.RS]))-14, dir:-1,
+                    ay:(PY(ls[K.LS])+PY(ls[K.RS]))/2});
     }else hideBadge(sh);
+
+    // 腰水平 → 腰の外側（左）へ逃がす
     const hi=g('b-hi');
     if(isVis(ls,K.LH)&&isVis(ls,K.RH)){
-        const m=midLm(ls[K.LH],ls[K.RH]),d=tiltDeg(ls[K.RH],ls[K.LH]);
-        hi.textContent=`腰水平 ${d>0?'+':''}${d}°`;place(hi,m.x,m.y,-118,5);
+        const d=tiltDeg(ls[K.RH],ls[K.LH]);
+        hi.textContent=`腰水平 ${d>0?'+':''}${d}°`;
+        specs.push({el:hi, edgeX:Math.min(PX(ls[K.LH]),PX(ls[K.RH]))-14, dir:-1,
+                    ay:(PY(ls[K.LH])+PY(ls[K.RH]))/2});
     }else hideBadge(hi);
+
+    // 足水平 → 足の外側（右）へ逃がす
     const ft=g('b-ft');
     if((ls[K.LA]?.visibility??0)>.3&&(ls[K.RA]?.visibility??0)>.3){
-        const m=midLm(ls[K.LA],ls[K.RA]),d=tiltDeg(ls[K.RA],ls[K.LA]);
-        ft.textContent=`足水平 ${d>0?'+':''}${d}°`;place(ft,m.x,m.y,42,15);
+        const d=tiltDeg(ls[K.RA],ls[K.LA]);
+        ft.textContent=`足水平 ${d>0?'+':''}${d}°`;
+        specs.push({el:ft, edgeX:Math.max(PX(ls[K.LA]),PX(ls[K.RA]))+14, dir:+1,
+                    ay:(PY(ls[K.LA])+PY(ls[K.RA]))/2});
     }else hideBadge(ft);
+
+    layoutBadges(specs);
+}
+
+// ── バッジ衝突回避レイアウト ─────────────────────────────────
+//  体の外側へ寄せたうえで、バッジ同士の重なりを縦方向に押し分ける
+function layoutBadges(specs){
+    if(!specs.length) return;
+    const host=document.getElementById('app');
+    const W=host.clientWidth, H=host.clientHeight;
+    const PAD=5;
+
+    // 初期配置（dir側へ配置し、画面内にクランプ）
+    for(const s of specs){
+        s.el.style.display='block';
+        s.w=s.el.offsetWidth; s.h=s.el.offsetHeight;
+        let left = s.dir<0 ? s.edgeX - s.w : s.edgeX;
+        left = Math.max(2, Math.min(W - s.w - 2, left));
+        let top  = Math.max(2, Math.min(H - s.h - 2, s.ay - s.h/2));
+        s.left=left; s.top=top;
+    }
+
+    // 重なり解消（数回反復して縦に押し分ける）
+    for(let iter=0; iter<8; iter++){
+        let moved=false;
+        for(let i=0;i<specs.length;i++){
+            for(let j=i+1;j<specs.length;j++){
+                const a=specs[i], b=specs[j];
+                const ox=Math.min(a.left+a.w, b.left+b.w)-Math.max(a.left, b.left);
+                const oy=Math.min(a.top+a.h, b.top+b.h)-Math.max(a.top, b.top);
+                if(ox>0 && oy>0){           // 矩形が重なっている
+                    const push=oy/2 + PAD;
+                    if(a.top<=b.top){ a.top-=push; b.top+=push; }
+                    else            { a.top+=push; b.top-=push; }
+                    moved=true;
+                }
+            }
+        }
+        if(!moved) break;
+    }
+
+    // 最終クランプして反映
+    for(const s of specs){
+        s.top=Math.max(2, Math.min(H - s.h - 2, s.top));
+        s.el.style.left=Math.round(s.left)+'px';
+        s.el.style.top =Math.round(s.top)+'px';
+    }
 }
 
 function syncCanvas(){
