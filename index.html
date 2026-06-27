@@ -522,6 +522,63 @@ function drawSkeleton(ls){
     }
 }
 
+// ── 三重十文字 基準線オーバーレイ（見直しモード時） ──────────
+//  ピンク＝標準（理想）の鉛直中心線＋肩・腰・足の水平線
+//  水色＝実際の体の線（肩・腰・足＋体軸）。両者を並べてズレを比較する
+function drawJumonjiGuide(ls){
+    // 肩・腰が見えていなければ描画しない
+    if(!(isVis(ls,K.LS)&&isVis(ls,K.RS)&&isVis(ls,K.LH)&&isVis(ls,K.RH))) return;
+    const t=getT();
+    const PX=lm=>lm.x*t.vw*t.s+t.ox;
+    const PY=lm=>lm.y*t.vh*t.s+t.oy;
+
+    // 各部位の中心（画面ピクセル）
+    const shX=(PX(ls[K.LS])+PX(ls[K.RS]))/2, shY=(PY(ls[K.LS])+PY(ls[K.RS]))/2;
+    const hiX=(PX(ls[K.LH])+PX(ls[K.RH]))/2, hiY=(PY(ls[K.LH])+PY(ls[K.RH]))/2;
+    const ankleVis=(ls[K.LA]?.visibility??0)>.3&&(ls[K.RA]?.visibility??0)>.3;
+    const ftX=ankleVis?(PX(ls[K.LA])+PX(ls[K.RA]))/2:hiX;
+    const ftY=ankleVis?(PY(ls[K.LA])+PY(ls[K.RA]))/2:hiY+(hiY-shY);
+
+    // 理想の鉛直軸X（足元の中心。なければ腰中心）
+    const cx  = ftX;
+    const shW = Math.abs(PX(ls[K.LS])-PX(ls[K.RS]));
+    const halfW = Math.max(60, shW*0.95);   // 横線の長さ
+    const topY  = shY-(hiY-shY)*0.7;         // 中心線の上端（頭付近）
+
+    ovCtx.save();
+    ovCtx.lineCap='round';
+
+    // ── 標準線（ピンク・実線）──────────────────────────────
+    ovCtx.strokeStyle='rgba(255,45,120,0.92)';
+    ovCtx.lineWidth=2.5;
+    ovCtx.setLineDash([]);
+    // 中心線（鉛直）
+    ovCtx.beginPath();ovCtx.moveTo(cx,topY);ovCtx.lineTo(cx,ftY);ovCtx.stroke();
+    // 肩・腰・足の水平線（鉛直に直角）
+    const hline=y=>{ovCtx.beginPath();ovCtx.moveTo(cx-halfW,y);ovCtx.lineTo(cx+halfW,y);ovCtx.stroke();};
+    hline(shY);hline(hiY);hline(ftY);
+    // 十字の節（交点マーカー）
+    ovCtx.fillStyle='rgba(255,45,120,0.95)';
+    [[cx,shY],[cx,hiY],[cx,ftY]].forEach(([x,y])=>{
+        ovCtx.beginPath();ovCtx.arc(x,y,4,0,2*Math.PI);ovCtx.fill();
+    });
+
+    // ── 実際の線（水色・破線）比較用 ──────────────────────
+    ovCtx.strokeStyle='rgba(0,229,255,0.9)';
+    ovCtx.lineWidth=2;
+    ovCtx.setLineDash([7,5]);
+    const aline=(a,b)=>{ovCtx.beginPath();ovCtx.moveTo(PX(a),PY(a));ovCtx.lineTo(PX(b),PY(b));ovCtx.stroke();};
+    aline(ls[K.LS],ls[K.RS]);   // 実際の肩線
+    aline(ls[K.LH],ls[K.RH]);   // 実際の腰線
+    if(ankleVis) aline(ls[K.LA],ls[K.RA]); // 実際の足線
+    // 実際の体軸（肩中心→腰中心→足中心）
+    ovCtx.beginPath();ovCtx.moveTo(shX,shY);ovCtx.lineTo(hiX,hiY);
+    if(ankleVis) ovCtx.lineTo(ftX,ftY);
+    ovCtx.stroke();
+
+    ovCtx.restore();
+}
+
 // ── バッジ ───────────────────────────────────────────────────
 function place(el,nlx,nly,dx,dy){
     const t=getT();
@@ -638,7 +695,9 @@ function onResult(r){
     const ls=r.landmarks?.[0]??null;
     if(ls){
         noperson.style.display='none';
-        drawSkeleton(ls);updateBadges(ls);
+        drawSkeleton(ls);
+        if(reviewMode) drawJumonjiGuide(ls);   // 三重十文字 基準線
+        updateBadges(ls);
         const pose=classifyPose(ls);
         updateJudgePanel(ls,pose);
         onPhaseDetected(pose.phase,ls);
@@ -903,6 +962,8 @@ window.toggleReviewMode=function toggleReviewMode(){
         tog.classList.remove('on');
         document.body.classList.remove('review-mode');
     }
+    // 写真モードは静止画なので再解析して即時に反映
+    if(mode==='photo'&&photoImg) analyzePhoto();
 };
 
 // ── 自動判定トグル ──────────────────────────────────────────
@@ -1247,10 +1308,8 @@ async function switchMode(newMode){
     document.getElementById('cam-ctrl').style.display  = newMode==='cam'  ?'flex':'none';
     document.getElementById('vid-ctrl').style.display  = newMode==='video'?'flex':'none';
     document.getElementById('photo-ctrl').style.display= newMode==='photo'?'flex':'none';
-    // 見直しトグルは動画モードのみ表示
-    const revTog=document.getElementById('review-toggle');
-    if(newMode==='video') revTog.classList.add('visible');
-    else{ revTog.classList.remove('visible','on'); document.body.classList.remove('review-mode'); reviewMode=false; }
+    // 見直しSWは全モードで表示（十文字ガイド＋動画見直し）。状態はモード間で保持
+    document.getElementById('review-toggle').classList.add('visible');
     if(newMode==='cam'){
         await landmarker.setOptions({runningMode:'VIDEO'});
         camVideo.classList.add('show');
@@ -1396,6 +1455,7 @@ async function init(){
         camVideo.classList.add('show');
         await startCamera(facing);
         initPhaseStrip();
+        document.getElementById('review-toggle').classList.add('visible');
         document.getElementById('loading').style.display='none';
         camLoop();
     }catch(e){
