@@ -61,7 +61,7 @@
 
         /* ── 姿勢判定パネル ── */
         #judge-panel{
-            position:absolute;top:80px;left:10px;z-index:15;
+            position:absolute;top:166px;left:10px;z-index:15;
             background:rgba(0,0,0,.82);border:1.5px solid rgba(255,255,255,.25);
             border-radius:12px;padding:10px 13px;min-width:155px;
             display:none;pointer-events:none
@@ -81,6 +81,65 @@
         .sc-good{color:#69f0ae;font-weight:700}
         .sc-ok  {color:#ffeb3b;font-weight:700}
         .sc-bad {color:#ff5252;font-weight:700}
+
+        /* ── フェーズストリップ ── */
+        #phase-strip{
+            position:absolute;top:76px;left:0;right:0;height:88px;z-index:18;
+            display:flex;align-items:center;overflow-x:auto;overflow-y:hidden;
+            gap:5px;padding:5px 8px;
+            background:rgba(0,0,0,.75);
+            scrollbar-width:none;-webkit-overflow-scrolling:touch
+        }
+        #phase-strip::-webkit-scrollbar{display:none}
+        #strip-reset{
+            flex:0 0 auto;font-size:10px;color:rgba(255,255,255,.5);
+            background:transparent;border:1px solid rgba(255,255,255,.2);
+            border-radius:6px;padding:3px 6px;cursor:pointer;white-space:nowrap
+        }
+        .ph-slot{
+            flex:0 0 68px;display:flex;flex-direction:column;align-items:center;
+            gap:2px;cursor:pointer;border-radius:8px;
+            border:1.5px solid rgba(255,255,255,.15);padding:4px 3px;
+            background:rgba(255,255,255,.04);position:relative;
+            transition:border-color .2s,background .2s
+        }
+        .ph-slot.ph-active{border-color:#00e5ff;background:rgba(0,229,255,.1)}
+        .ph-slot.ph-done{border-color:rgba(255,255,255,.4)}
+        .ph-thumb{
+            width:62px;height:44px;border-radius:4px;
+            background:rgba(255,255,255,.07);display:block;object-fit:cover
+        }
+        .ph-name{font-size:9px;color:rgba(255,255,255,.75);text-align:center;line-height:1.2}
+        .ph-score{font-size:12px;font-weight:700;color:rgba(255,255,255,.4)}
+        .ph-snap{
+            position:absolute;top:2px;right:2px;
+            background:rgba(0,0,0,.65);border:none;border-radius:4px;
+            color:#fff;font-size:9px;padding:1px 4px;cursor:pointer;display:none
+        }
+        .ph-slot.ph-active .ph-snap{display:block}
+
+        /* ── フェーズモーダル ── */
+        #ph-modal{
+            position:absolute;inset:0;z-index:60;display:none;
+            flex-direction:column;align-items:center;justify-content:center;
+            background:rgba(0,0,0,.9);padding:20px
+        }
+        #ph-modal.show{display:flex}
+        #ph-modal-img{
+            max-width:88vw;max-height:58vh;border-radius:12px;
+            border:2px solid rgba(255,255,255,.3)
+        }
+        #ph-modal-info{
+            color:#fff;text-align:center;padding:14px 0 8px;
+            font-size:13px;line-height:1.8
+        }
+        #ph-modal-btns{display:flex;gap:10px;margin-top:4px}
+        .ph-modal-btn{
+            background:rgba(255,255,255,.18);color:#fff;
+            border:1.5px solid rgba(255,255,255,.4);
+            padding:9px 20px;border-radius:22px;font-size:13px;cursor:pointer
+        }
+        .ph-modal-btn.danger{color:#ff5252;border-color:#ff5252}
 
         /* ── アップロードエリア ── */
         #upload-area{
@@ -193,6 +252,21 @@
     <video id="file-video" playsinline loop></video>
     <canvas id="bg-canvas"></canvas>
     <canvas id="overlay"></canvas>
+
+    <!-- フェーズストリップ -->
+    <div id="phase-strip">
+        <button id="strip-reset" onclick="resetCaptures()">🗑 全消去</button>
+    </div>
+
+    <!-- フェーズ詳細モーダル -->
+    <div id="ph-modal">
+        <img id="ph-modal-img" src="" alt="">
+        <div id="ph-modal-info"></div>
+        <div id="ph-modal-btns">
+            <button class="ph-modal-btn danger" id="ph-modal-del">🗑 削除</button>
+            <button class="ph-modal-btn" id="ph-modal-close">✕ 閉じる</button>
+        </div>
+    </div>
 
     <!-- 姿勢判定パネル -->
     <div id="judge-panel">
@@ -426,11 +500,15 @@ function onResult(r){
     const ls=r.landmarks?.[0]??null;
     if(ls){
         noperson.style.display='none';
-        drawSkeleton(ls);updateBadges(ls);updateJudgePanel(ls);
+        drawSkeleton(ls);updateBadges(ls);
+        const pose=classifyPose(ls);
+        updateJudgePanel(ls,pose);
+        onPhaseDetected(pose.phase,ls);
     }else{
         noperson.style.display='block';
         hideAll();
         document.getElementById('judge-panel').classList.remove('show');
+        currentLandmarks=null;
     }
 }
 
@@ -551,12 +629,11 @@ function judgePhaseSpecific(ls, phase){
 }
 
 // ── 判定パネル更新 ───────────────────────────────────────────
-function updateJudgePanel(ls){
+function updateJudgePanel(ls,pose){
     const panel=document.getElementById('judge-panel');
-    if(!ls){panel.classList.remove('show');return;}
+    if(!ls||!pose){panel.classList.remove('show');return;}
     panel.classList.add('show');
 
-    const pose=classifyPose(ls);
     document.getElementById('judge-phase').innerHTML=
         `<span style="color:${pose.color}">${pose.emoji} ${pose.label}</span>`;
 
@@ -566,9 +643,8 @@ function updateJudgePanel(ls){
             `<span><span class="${r.cls}">${r.mark}</span> ${r.val}</span>`;
     });
 
-    // フェーズ別チェック
-    const spec   = judgePhaseSpecific(ls, pose.phase);
-    const specEl = document.getElementById('judge-specific');
+    const spec=judgePhaseSpecific(ls,pose.phase);
+    const specEl=document.getElementById('judge-specific');
     if(spec.length>0){
         specEl.style.display='block';
         specEl.innerHTML=
@@ -581,6 +657,120 @@ function updateJudgePanel(ls){
     }else{
         specEl.style.display='none';
     }
+}
+
+// ================================================================
+//  フェーズストリップ＆キャプチャシステム
+// ================================================================
+const PHASES=[
+    {key:'toriyu',    label:'執弓',   emoji:'⭕'},
+    {key:'dozukuri',  label:'胴造り', emoji:'🧍'},
+    {key:'yugamae',   label:'弓構え', emoji:'🏹'},
+    {key:'uchiokoshi',label:'打起し', emoji:'⬆'},
+    {key:'hikiwake',  label:'引分け', emoji:'↔'},
+    {key:'kai',       label:'会',     emoji:'🎯'},
+    {key:'zanshin',   label:'残心',   emoji:'✨'},
+];
+let phaseCaptures={}, currentLandmarks=null;
+let lastPhaseKey=null, phaseHoldTimer=null, modalPhaseKey=null;
+
+function initPhaseStrip(){
+    const strip=document.getElementById('phase-strip');
+    const resetBtn=document.getElementById('strip-reset');
+    strip.innerHTML='';
+    strip.appendChild(resetBtn);
+    PHASES.forEach(p=>{
+        const slot=document.createElement('div');
+        slot.className='ph-slot';slot.dataset.key=p.key;
+        slot.innerHTML=
+            `<canvas class="ph-thumb" id="th-${p.key}" width="62" height="44"></canvas>`+
+            `<div class="ph-name">${p.emoji} ${p.label}</div>`+
+            `<div class="ph-score" id="sc-${p.key}">―</div>`+
+            `<button class="ph-snap" onclick="event.stopPropagation();capturePhase('${p.key}')">📸</button>`;
+        slot.addEventListener('click',()=>openModal(p.key));
+        strip.appendChild(slot);
+    });
+}
+
+function onPhaseDetected(phaseKey,ls){
+    currentLandmarks=ls;
+    document.querySelectorAll('.ph-slot').forEach(el=>
+        el.classList.toggle('ph-active',el.dataset.key===phaseKey));
+    if(phaseKey===lastPhaseKey) return;
+    lastPhaseKey=phaseKey;
+    clearTimeout(phaseHoldTimer);
+    if(phaseKey!=='unknown'){
+        phaseHoldTimer=setTimeout(()=>{
+            if(!phaseCaptures[phaseKey]&&currentLandmarks) capturePhase(phaseKey);
+        },900);
+    }
+}
+
+function capturePhase(key){
+    if(!currentLandmarks) return;
+    const cap=document.createElement('canvas');
+    cap.width=240;cap.height=170;
+    const cc=cap.getContext('2d');
+    cc.fillStyle='#000';cc.fillRect(0,0,240,170);
+    const src=mode==='cam'?camVideo:mode==='video'?fileVideo:null;
+    if(src&&src.readyState>=2){
+        const vw=src.videoWidth||1,vh=src.videoHeight||1;
+        const s=Math.min(240/vw,170/vh);
+        cc.drawImage(src,(240-vw*s)/2,(170-vh*s)/2,vw*s,vh*s);
+    }else if(mode==='photo'&&photoImg){
+        const vw=photoImg.naturalWidth||1,vh=photoImg.naturalHeight||1;
+        const s=Math.min(240/vw,170/vh);
+        cc.drawImage(photoImg,(240-vw*s)/2,(170-vh*s)/2,vw*s,vh*s);
+    }
+    if(overlay.width>0)
+        cc.drawImage(overlay,0,0,overlay.width,overlay.height,0,0,240,170);
+    const jj=judgeJumonji(currentLandmarks);
+    const tot=jj.reduce((n,r)=>n+(r.mark==='◎'?2:r.mark==='○'?1:0),0);
+    const scoreText=jj.map(r=>`${r.name}${r.mark}`).join(' ');
+    const mark=tot>=5?'◎':tot>=3?'○':'△';
+    const cls=tot>=5?'sc-good':tot>=3?'sc-ok':'sc-bad';
+    phaseCaptures[key]={dataUrl:cap.toDataURL('image/jpeg',0.88),scoreText,mark};
+    const th=document.getElementById(`th-${key}`);
+    if(th){const tc=th.getContext('2d');tc.drawImage(cap,0,0,240,170,0,0,62,44);}
+    const sc=document.getElementById(`sc-${key}`);
+    if(sc){sc.textContent=mark;sc.className=`ph-score ${cls}`;}
+    document.querySelector(`.ph-slot[data-key="${key}"]`)?.classList.add('ph-done');
+}
+
+function openModal(key){
+    const cap=phaseCaptures[key];
+    const p=PHASES.find(x=>x.key===key);
+    if(!cap||!p) return;
+    modalPhaseKey=key;
+    document.getElementById('ph-modal-img').src=cap.dataUrl;
+    document.getElementById('ph-modal-info').innerHTML=
+        `<strong style="font-size:15px">${p.emoji} ${p.label}</strong><br>`+
+        `<span class="${cap.mark==='◎'?'sc-good':cap.mark==='○'?'sc-ok':'sc-bad'}">`+
+        `三重十文字 ${cap.mark}</span><br>`+
+        `<small style="color:rgba(255,255,255,.6)">${cap.scoreText}</small>`;
+    document.getElementById('ph-modal').classList.add('show');
+}
+document.getElementById('ph-modal-close').addEventListener('click',()=>
+    document.getElementById('ph-modal').classList.remove('show'));
+document.getElementById('ph-modal-del').addEventListener('click',()=>{
+    if(!modalPhaseKey) return;
+    delete phaseCaptures[modalPhaseKey];
+    const th=document.getElementById(`th-${modalPhaseKey}`);
+    if(th){th.getContext('2d').clearRect(0,0,62,44);}
+    const sc=document.getElementById(`sc-${modalPhaseKey}`);
+    if(sc){sc.textContent='―';sc.className='ph-score';}
+    document.querySelector(`.ph-slot[data-key="${modalPhaseKey}"]`)?.classList.remove('ph-done');
+    document.getElementById('ph-modal').classList.remove('show');
+});
+function resetCaptures(){
+    phaseCaptures={};
+    PHASES.forEach(p=>{
+        const th=document.getElementById(`th-${p.key}`);
+        if(th) th.getContext('2d').clearRect(0,0,62,44);
+        const sc=document.getElementById(`sc-${p.key}`);
+        if(sc){sc.textContent='―';sc.className='ph-score';}
+        document.querySelector(`.ph-slot[data-key="${p.key}"]`)?.classList.remove('ph-done');
+    });
 }
 
 // ── 録画：開始 ──────────────────────────────────────────────
@@ -844,6 +1034,7 @@ async function init(){
         loadMsg.innerHTML='<b>カメラ起動中…</b>';
         camVideo.classList.add('show');
         await startCamera(facing);
+        initPhaseStrip();
         document.getElementById('loading').style.display='none';
         camLoop();
     }catch(e){
