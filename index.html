@@ -523,40 +523,49 @@ function classifyPose(ls){
     const leAng = angle3(ls[K.LS],ls[K.LE],ls[K.LW]); // 弓手（左）肘角度
     const reAng = angle3(ls[K.RS],ls[K.RE],ls[K.RW]); // 馬手（右）肘角度
 
-    const sY    = (ls[K.LS].y + ls[K.RS].y) / 2; // 肩高さ（y小=画面上=高い位置）
-    const hY    = (ls[K.LH].y + ls[K.RH].y) / 2; // 腰高さ
+    const sY    = (ls[K.LS].y + ls[K.RS].y) / 2;
+    const hY    = (ls[K.LH].y + ls[K.RH].y) / 2;
     const lwY   = ls[K.LW].y, rwY = ls[K.RW].y;
     const avgWY = (lwY + rwY) / 2;
 
-    // 判定フラグ
-    const bothAboveShoulder = lwY < sY-0.04 && rwY < sY-0.04;          // 打起し以降
-    const wristMidZone      = avgWY > sY+0.04 && avgWY < hY-0.03;      // 弓構えゾーン
-    const wristAtHip        = Math.abs(lwY-hY)<0.13 && Math.abs(rwY-hY)<0.13; // 腰骨付近
-    const elbowsBent        = leAng < 145 && reAng < 145;               // 肘が曲がっている
+    // 位置判定フラグ
+    const bothAboveShoulder = lwY < sY-0.04 && rwY < sY-0.04;     // 打起し以降
+    const wristNearShoulder = Math.abs(lwY-sY)<0.15 && Math.abs(rwY-sY)<0.15; // 残心（肩高さ付近）
+    const wristMidZone      = avgWY > sY+0.04 && avgWY < hY-0.03; // 弓構えゾーン
+    const wristAtHip        = Math.abs(lwY-hY)<0.14 && Math.abs(rwY-hY)<0.14; // 腰骨付近
+
+    // 腕の横広がり比率（残心判定補助：肩幅比）
+    const spreadRatio = Math.abs(ls[K.LW].x-ls[K.RW].x) /
+                        Math.max(0.01, Math.abs(ls[K.LS].x-ls[K.RS].x));
 
     // ① 会：弓手ほぼ真っすぐ(>155°)、馬手深く引(<110°)、両手首が肩より上
     if(leAng>155 && reAng<110 && bothAboveShoulder)
         return {label:'会',emoji:'🎯',color:'#ff9800',phase:'kai'};
 
-    // ② 残心：両腕が広がり肩付近の高さ、ほぼ対称
-    if(leAng>125 && reAng>125 && bothAboveShoulder && Math.abs(leAng-reAng)<45)
+    // ② 残心：会の後、腕が横に大きく広がる
+    //   条件A: 両肘ほぼ真っすぐ(>130°)、手首が肩付近または上
+    //   条件B: 弓手が伸びていて、腕が大きく広がっている（馬手検出エラー対応）
+    const zanshinA = leAng>130 && reAng>130 && (bothAboveShoulder||wristNearShoulder);
+    const zanshinB = leAng>130 && spreadRatio>1.20 && (bothAboveShoulder||wristNearShoulder);
+    if(zanshinA || zanshinB)
         return {label:'残心',emoji:'✨',color:'#e040fb',phase:'zanshin'};
 
-    // ③ 引分け：両手首が肩より上、弓手が馬手より伸びている（大三含む）
-    if(bothAboveShoulder && leAng > reAng+20)
+    // ③ 引分け：両手首が肩より上、弓手が馬手より20°以上伸びている（大三含む）
+    if(bothAboveShoulder && leAng>reAng+20)
         return {label:'引分け',emoji:'↔',color:'#42a5f5',phase:'hikiwake'};
 
     // ④ 打起し：両手首が肩より上、ほぼ左右対称
     if(bothAboveShoulder)
         return {label:'打起し',emoji:'⬆',color:'#26c6da',phase:'uchiokoshi'};
 
-    // ⑤ 弓構え：手首が肩と腰の中間ゾーン、両肘が張っている
-    if(wristMidZone && elbowsBent)
-        return {label:'弓構え',emoji:'🏹',color:'#66bb6a',phase:'yugamae'};
-
-    // ⑥ 執弓の姿勢：両拳が腰骨付近 かつ 円相（肘を張っている）
-    if(wristAtHip && elbowsBent)
+    // ⑤ 執弓の姿勢：両肘が深く曲がっている(<105°)→ 円相の形
+    //   弓構えより深く肘を曲げて腰付近または中間ゾーンに構える
+    if(leAng<105 && reAng<105)
         return {label:'執弓の姿勢',emoji:'⭕',color:'#00e5ff',phase:'toriyu'};
+
+    // ⑥ 弓構え：手首が肩と腰の中間ゾーン、肘が中程度に曲がっている(105°〜150°)
+    if(wristMidZone && leAng>=105 && reAng>=105 && leAng<155 && reAng<155)
+        return {label:'弓構え',emoji:'🏹',color:'#66bb6a',phase:'yugamae'};
 
     // ⑦ 胴造り・足踏み：それ以外
     return {label:'胴造り・足踏み',emoji:'🧍',color:'#bdbdbd',phase:'dozukuri'};
