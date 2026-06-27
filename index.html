@@ -617,47 +617,54 @@ function updateBadges(ls){
     const PX=lm=>lm.x*t.vw*t.s+t.ox;   // ランドマーク→画面ピクセルX
     const PY=lm=>lm.y*t.vh*t.s+t.oy;   // ランドマーク→画面ピクセルY
 
+    // 体の最外端（肩・肘・手首・腰）を求め、その外側にバッジを逃がす
+    const M=24; // 体から離すマージン（px）
+    const extentIdx=[K.LS,K.RS,K.LE,K.RE,K.LW,K.RW,K.LH,K.RH].filter(i=>isVis(ls,i));
+    const extXs=extentIdx.map(i=>PX(ls[i]));
+    const bodyLeft  = extXs.length?Math.min(...extXs):PX(ls[K.RS]);
+    const bodyRight = extXs.length?Math.max(...extXs):PX(ls[K.LS]);
+    const leftEdge  = bodyLeft  - M;   // 左側バッジの内側境界
+    const rightEdge = bodyRight + M;   // 右側バッジの内側境界
+
     // 表示するバッジを収集（edgeX=体から逃がす境界、dir=-1左/+1右、ay=縦位置）
     const specs=[];
 
-    // 右肘（馬手・画面左）→ 肘の左へ
+    // 右肘（馬手・画面左）→ 体の左外へ
     const re=g('b-re');
     if(isVis(ls,K.RS)&&isVis(ls,K.RE)&&isVis(ls,K.RW)){
         re.textContent=`右肘 ${angle3(ls[K.RS],ls[K.RE],ls[K.RW])}°`;
-        specs.push({el:re, edgeX:PX(ls[K.RE])-10, dir:-1, ay:PY(ls[K.RE])});
+        specs.push({el:re, edgeX:leftEdge, dir:-1, ay:PY(ls[K.RE])});
     }else hideBadge(re);
 
-    // 左肘（弓手・画面右）→ 肘の右へ
+    // 左肘（弓手・画面右）→ 体の右外へ
     const le=g('b-le');
     if(isVis(ls,K.LS)&&isVis(ls,K.LE)&&isVis(ls,K.LW)){
         le.textContent=`左肘 ${angle3(ls[K.LS],ls[K.LE],ls[K.LW])}°`;
-        specs.push({el:le, edgeX:PX(ls[K.LE])+10, dir:+1, ay:PY(ls[K.LE])});
+        specs.push({el:le, edgeX:rightEdge, dir:+1, ay:PY(ls[K.LE])});
     }else hideBadge(le);
 
-    // 肩水平 → 肩の外側（左）へ逃がす（体と重ならない）
+    // 肩水平 → 体の左外へ（肩の高さ）
     const sh=g('b-sh');
     if(isVis(ls,K.LS)&&isVis(ls,K.RS)){
         const d=tiltDeg(ls[K.RS],ls[K.LS]);
         sh.textContent=`肩水平 ${d>0?'+':''}${d}°`;
-        specs.push({el:sh, edgeX:Math.min(PX(ls[K.LS]),PX(ls[K.RS]))-14, dir:-1,
-                    ay:(PY(ls[K.LS])+PY(ls[K.RS]))/2});
+        specs.push({el:sh, edgeX:leftEdge, dir:-1, ay:(PY(ls[K.LS])+PY(ls[K.RS]))/2});
     }else hideBadge(sh);
 
-    // 腰水平 → 腰の外側（左）へ逃がす
+    // 腰水平 → 体の左外へ（腰の高さ）
     const hi=g('b-hi');
     if(isVis(ls,K.LH)&&isVis(ls,K.RH)){
         const d=tiltDeg(ls[K.RH],ls[K.LH]);
         hi.textContent=`腰水平 ${d>0?'+':''}${d}°`;
-        specs.push({el:hi, edgeX:Math.min(PX(ls[K.LH]),PX(ls[K.RH]))-14, dir:-1,
-                    ay:(PY(ls[K.LH])+PY(ls[K.RH]))/2});
+        specs.push({el:hi, edgeX:leftEdge, dir:-1, ay:(PY(ls[K.LH])+PY(ls[K.RH]))/2});
     }else hideBadge(hi);
 
-    // 足水平 → 足の外側（右）へ逃がす
+    // 足水平 → 足の外側（右）へ。足首の外端基準で足元付近に置く
     const ft=g('b-ft');
     if((ls[K.LA]?.visibility??0)>.3&&(ls[K.RA]?.visibility??0)>.3){
         const d=tiltDeg(ls[K.RA],ls[K.LA]);
         ft.textContent=`足水平 ${d>0?'+':''}${d}°`;
-        specs.push({el:ft, edgeX:Math.max(PX(ls[K.LA]),PX(ls[K.RA]))+14, dir:+1,
+        specs.push({el:ft, edgeX:Math.max(PX(ls[K.LA]),PX(ls[K.RA]))+M, dir:+1,
                     ay:(PY(ls[K.LA])+PY(ls[K.RA]))/2});
     }else hideBadge(ft);
 
