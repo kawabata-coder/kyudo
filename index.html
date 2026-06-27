@@ -789,7 +789,7 @@ let lastPhaseKey=null, phaseHoldTimer=null, modalPhaseKey=null;
 let autoMode=true; // 自動判定ON/OFF
 
 // ── 自動判定トグル ──────────────────────────────────────────
-function toggleAutoMode(){
+window.toggleAutoMode=function toggleAutoMode(){
     autoMode=!autoMode;
     const tog=document.getElementById('auto-toggle');
     const lbl=document.getElementById('auto-label');
@@ -894,7 +894,7 @@ function onPhaseDetected(phaseKey,ls){
     }
 }
 
-function capturePhase(key){
+window.capturePhase=function capturePhase(key){
     if(!currentLandmarks) return;
     const cap=document.createElement('canvas');
     cap.width=240;cap.height=170;
@@ -950,7 +950,7 @@ document.getElementById('ph-modal-del').addEventListener('click',()=>{
     document.querySelector(`.ph-slot[data-key="${modalPhaseKey}"]`)?.classList.remove('ph-done');
     document.getElementById('ph-modal').classList.remove('show');
 });
-function resetCaptures(){
+window.resetCaptures=function resetCaptures(){
     phaseCaptures={};
     PHASES.forEach(p=>{
         const th=document.getElementById(`th-${p.key}`);
