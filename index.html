@@ -576,12 +576,25 @@ function classifyPose(ls){
     if(leAng<105 && reAng<105)
         return {label:'執弓の姿勢',emoji:'⭕',color:'#00e5ff',phase:'toriyu'};
 
-    // ⑥ 弓構え：手首が肩と腰の中間ゾーン、肘が中程度に曲がっている(105°〜150°)
-    if(wristMidZone && leAng>=105 && reAng>=105 && leAng<155 && reAng<155)
+    // ⑦ 弓構え：手首が肩と腰の中間ゾーン、肘が軽く張った状態(105°〜155°)
+    //   資料より：左右の肘を軽く張り大木を抱えた気持ち
+    //   弓懐（弓と体の間に空間）を作るため肘が自然に外に張る
+    const elbowSpread = Math.abs(ls[K.LE].x - ls[K.RE].x);
+    const shoulderW   = Math.abs(ls[K.LS].x - ls[K.RS].x);
+    const elbowWider  = elbowSpread > shoulderW * 0.85; // 肘が肩幅以上に張っている
+    if(wristMidZone && leAng>=105 && reAng>=105 && leAng<155 && reAng<155 && elbowWider)
         return {label:'弓構え',emoji:'🏹',color:'#66bb6a',phase:'yugamae'};
 
-    // ⑦ 胴造り・足踏み：それ以外
-    return {label:'胴造り・足踏み',emoji:'🧍',color:'#bdbdbd',phase:'dozukuri'};
+    // ⑧ 胴造り：腕が体側に自然に下がり直立している状態
+    //   資料より：腰・肩の線を足踏みの線と平行に、重心を総体の中央に
+    //   膕（ひかがみ）を伸す、気息をととのえる
+    const armsRelaxed  = lwY > hY-0.08 && rwY > hY-0.08; // 手首が腰付近以下
+    const elbowsLoose  = leAng > 130 && reAng > 130;      // 肘が大きく曲がっていない
+    if(armsRelaxed && elbowsLoose)
+        return {label:'胴造り',emoji:'🧍',color:'#bdbdbd',phase:'dozukuri'};
+
+    // ⑨ それ以外：胴造りとして扱う
+    return {label:'胴造り',emoji:'🧍',color:'#bdbdbd',phase:'dozukuri'};
 }
 
 // ── 三重十文字判定（全フェーズ共通） ────────────────────────
@@ -602,6 +615,32 @@ function judgeJumonji(ls){
 function judgePhaseSpecific(ls, phase){
     const sc=(v,t1,t2)=>v<t1?{mark:'◎',cls:'sc-good'}:v<t2?{mark:'○',cls:'sc-ok'}:{mark:'△',cls:'sc-bad'};
     const checks=[];
+
+    if(phase==='dozukuri'){
+        // 胴造りチェック（資料：腰・肩の線を平行に、重心を中央に）
+        // ①肩の水平（三重十文字①と同じ軸で確認）
+        const shT2 = Math.abs(tiltDeg(ls[K.RS],ls[K.LS]));
+        checks.push({name:'肩の水平', val:shT2.toFixed(1)+'°', ...sc(shT2,2,5)});
+        // ②腰の水平
+        const hiT2 = Math.abs(tiltDeg(ls[K.RH],ls[K.LH]));
+        checks.push({name:'腰の水平', val:hiT2.toFixed(1)+'°', ...sc(hiT2,2,5)});
+        // ③体の中心（肩中心と腰中心のx座標のずれ）
+        const axD2 = Math.abs(
+            (ls[K.LS].x+ls[K.RS].x)/2 - (ls[K.LH].x+ls[K.RH].x)/2)*100;
+        checks.push({name:'重心中央', val:axD2.toFixed(1)+'%', ...sc(axD2,3,7)});
+    }
+
+    if(phase==='yugamae'){
+        // 弓構えチェック（資料：左右の肘を軽く張り大木を抱えた気持ち）
+        // ①弓懐：肘の張り（肘幅が肩幅以上か）
+        const eW2  = Math.abs(ls[K.LE].x - ls[K.RE].x);
+        const sW2  = Math.abs(ls[K.LS].x - ls[K.RS].x);
+        const eRat = (eW2/Math.max(0.01,sW2))*100;
+        checks.push({name:'弓懐（肘張）', val:eRat.toFixed(0)+'%', ...sc(Math.abs(eRat-110),0,20)});
+        // ②両肘の左右均等（左右の肘の高さの差）
+        const eBal = Math.abs(ls[K.LE].y - ls[K.RE].y)*100;
+        checks.push({name:'肘均等', val:eBal.toFixed(1)+'%', ...sc(eBal,3,8)});
+    }
 
     if(phase==='toriyu'){
         // 執弓の姿勢チェック
@@ -633,6 +672,23 @@ function judgePhaseSpecific(ls, phase){
         // 両肩の線が矢に接近（肩の左右均等な下がり）
         const sT  = Math.abs(tiltDeg(ls[K.RS],ls[K.LS]));
         checks.push({name:'肩均等',    val:sT.toFixed(1)+'°', ...sc(sT,3,7)});
+    }
+
+    if(phase==='zanshin'){
+        // 残心チェック（資料：両拳が肩の高さになる）
+        const sY2  = (ls[K.LS].y + ls[K.RS].y) / 2;
+        // ①両拳の高さ（肩の高さに揃っているか）
+        const lwDiff = Math.abs(ls[K.LW].y - sY2)*100;
+        const rwDiff = Math.abs(ls[K.RW].y - sY2)*100;
+        const wristH = (lwDiff + rwDiff) / 2;
+        checks.push({name:'拳の高さ', val:wristH.toFixed(0)+'%off', ...sc(wristH,8,18)});
+        // ②両拳の左右均等（高さが揃っているか）
+        const whBal = Math.abs(ls[K.LW].y - ls[K.RW].y)*100;
+        checks.push({name:'左右均等', val:whBal.toFixed(1)+'%', ...sc(whBal,4,10)});
+        // ③腕の広がり（左右に十分開いているか）
+        const spreadR2 = Math.abs(ls[K.LW].x-ls[K.RW].x) /
+                         Math.max(0.01, Math.abs(ls[K.LS].x-ls[K.RS].x));
+        checks.push({name:'腕の広がり', val:(spreadR2*100).toFixed(0)+'%', ...sc(Math.abs(spreadR2*100-150),0,30)});
     }
 
     if(phase==='kai'){
