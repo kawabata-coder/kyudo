@@ -177,7 +177,7 @@
 
         /* ── シークバー ── */
         #seek-wrap{
-            position:absolute;bottom:148px;left:20px;right:20px;z-index:20;display:none;
+            position:absolute;bottom:165px;left:20px;right:20px;z-index:20;display:none;
             padding:14px 0
         }
         #seek-wrap.show{display:block}
@@ -206,7 +206,7 @@
 
         /* ── コマ操作バー（シークバーのすぐ下） ── */
         #frame-ctrl{
-            position:absolute;bottom:95px;left:0;right:0;
+            position:absolute;bottom:112px;left:0;right:0;
             display:none;justify-content:center;gap:12px;z-index:20
         }
         #frame-ctrl.show{display:flex}
@@ -222,14 +222,14 @@
         /* ── フッター ── */
         #footer{
             position:absolute;bottom:0;left:0;right:0;z-index:20;
-            padding:10px 16px 20px;
+            padding:6px 10px 14px;
             background:linear-gradient(to top,rgba(0,0,0,.6),transparent);
-            display:flex;justify-content:center;gap:10px;flex-wrap:wrap
+            display:flex;justify-content:center;gap:8px;flex-wrap:wrap
         }
         .btn{
             background:rgba(255,255,255,.18);color:#fff;
             border:1.5px solid rgba(255,255,255,.4);
-            padding:9px 18px;border-radius:22px;font-size:13px;cursor:pointer
+            padding:8px 14px;border-radius:22px;font-size:13px;cursor:pointer
         }
         .btn:active{background:rgba(255,255,255,.4)}
         .btn.hi{background:#00e5ff;color:#000;border-color:transparent;font-weight:700}
@@ -427,21 +427,17 @@
             <button class="btn" id="btn-switch">📷 前後</button>
             <button class="btn" id="btn-rec">⏺ 録画</button>
         </div>
-        <!-- 動画操作（フッター：0.5x・コマ幅・動画変更のみ） -->
-        <div id="vid-ctrl" style="display:none;flex-direction:column;gap:8px;align-items:center">
-            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center">
-                <button class="btn" id="btn-slow">🐢 0.5x</button>
-                <span style="font-size:12px;color:rgba(255,255,255,.7)">コマ幅:</span>
-                <button class="step-btn" data-step="0.0167">1/60s</button>
-                <button class="step-btn on" data-step="0.0333">1/30s</button>
-                <button class="step-btn" data-step="0.0417">1/24s</button>
-                <button class="step-btn" data-step="0.1">0.1s</button>
-                <button class="step-btn" data-step="0.5">0.5s</button>
-                <button class="btn hi" id="btn-vid-open">動画を変更</button>
-            </div>
-            <div style="display:flex;gap:8px;align-items:center;justify-content:center">
-                <button class="btn" id="btn-rec-vid">⏺ 解析を録画</button>
-            </div>
+        <!-- 動画操作（フッター：0.5x・コマ幅・動画変更・録画） -->
+        <div id="vid-ctrl" style="display:none;flex-direction:row;gap:8px;align-items:center;flex-wrap:wrap;justify-content:center">
+            <button class="btn" id="btn-slow">🐢 0.5x</button>
+            <span style="font-size:12px;color:rgba(255,255,255,.7)">コマ幅:</span>
+            <button class="step-btn" data-step="0.0167">1/60s</button>
+            <button class="step-btn on" data-step="0.0333">1/30s</button>
+            <button class="step-btn" data-step="0.0417">1/24s</button>
+            <button class="step-btn" data-step="0.1">0.1s</button>
+            <button class="step-btn" data-step="0.5">0.5s</button>
+            <button class="btn" id="btn-rec-vid">⏺ 解析を録画</button>
+            <button class="btn hi" id="btn-vid-open">動画を変更</button>
         </div>
         <!-- 写真操作 -->
         <div id="photo-ctrl" style="display:none;gap:10px">
