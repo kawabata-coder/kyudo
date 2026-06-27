@@ -1127,9 +1127,14 @@ document.getElementById('file-input').addEventListener('change',async e=>{
         fileVideo.src=url;fileVideo.classList.add('show');
         document.getElementById('seek-wrap').classList.add('show');
         document.getElementById('frame-ctrl').classList.add('show');
-        document.getElementById('btn-play').textContent='⏸ 停止';
         fileVideo.onloadedmetadata=()=>timeLbl.textContent='0:00 / '+fmt(fileVideo.duration);
-        await fileVideo.load();fileVideo.play();vidLoop();
+        await fileVideo.load();
+        vidLoop();
+        fileVideo.play().then(()=>{
+            document.getElementById('btn-play').textContent='⏸ 停止';
+        }).catch(()=>{
+            document.getElementById('btn-play').textContent='▶ 再生';
+        });
     }
     e.target.value='';
 });
