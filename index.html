@@ -222,6 +222,35 @@
         #btn-rec.rec-on{background:#ff1744;color:#fff;border-color:transparent;animation:pulse 1s ease-in-out infinite}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.7}}
 
+        /* ── 自動判定トグル ── */
+        #auto-toggle{
+            display:flex;align-items:center;gap:7px;
+            font-size:12px;color:rgba(255,255,255,.75);
+            cursor:pointer;user-select:none
+        }
+        #auto-toggle-sw{
+            width:36px;height:20px;border-radius:10px;
+            background:rgba(255,255,255,.2);position:relative;
+            transition:background .2s;flex-shrink:0
+        }
+        #auto-toggle-sw::after{
+            content:'';position:absolute;top:3px;left:3px;
+            width:14px;height:14px;border-radius:50%;background:#fff;
+            transition:transform .2s
+        }
+        #auto-toggle.on #auto-toggle-sw{background:#00e5ff}
+        #auto-toggle.on #auto-toggle-sw::after{transform:translateX(16px)}
+
+        /* 手動モード：スロットタップで記録できることを示す */
+        body.manual-mode .ph-slot{
+            border-color:rgba(255,200,0,.3);
+            cursor:pointer
+        }
+        body.manual-mode .ph-slot:active{
+            background:rgba(255,200,0,.15)
+        }
+        body.manual-mode .ph-snap{display:none!important}
+
         /* ── ヒント ── */
         #noperson{
             position:absolute;bottom:76px;left:0;right:0;
@@ -294,7 +323,13 @@
 
     <!-- ヘッダー -->
     <div id="header">
-        <div id="title-row">🏹 弓道フォーム分析</div>
+        <div id="title-row" style="display:flex;align-items:center;justify-content:space-between">
+            <span>🏹 弓道フォーム分析</span>
+            <div id="auto-toggle" class="on" onclick="toggleAutoMode()">
+                <span id="auto-label">自動判定</span>
+                <div id="auto-toggle-sw"></div>
+            </div>
+        </div>
         <div id="tabs">
             <button class="tab on" data-mode="cam">📷 カメラ</button>
             <button class="tab"    data-mode="photo">🖼 写真</button>
@@ -751,6 +786,26 @@ const PHASES=[
 ];
 let phaseCaptures={}, currentLandmarks=null;
 let lastPhaseKey=null, phaseHoldTimer=null, modalPhaseKey=null;
+let autoMode=true; // 自動判定ON/OFF
+
+// ── 自動判定トグル ──────────────────────────────────────────
+function toggleAutoMode(){
+    autoMode=!autoMode;
+    const tog=document.getElementById('auto-toggle');
+    const lbl=document.getElementById('auto-label');
+    if(autoMode){
+        tog.classList.add('on');
+        lbl.textContent='自動判定';
+        document.body.classList.remove('manual-mode');
+    }else{
+        tog.classList.remove('on');
+        lbl.textContent='手動記録';
+        document.body.classList.add('manual-mode');
+        // 自動ハイライトをリセット
+        document.querySelectorAll('.ph-slot').forEach(el=>el.classList.remove('ph-active'));
+        clearTimeout(phaseHoldTimer);
+    }
+}
 
 function initPhaseStrip(){
     const strip=document.getElementById('phase-strip');
@@ -765,13 +820,68 @@ function initPhaseStrip(){
             `<div class="ph-name">${p.emoji} ${p.label}</div>`+
             `<div class="ph-score" id="sc-${p.key}">―</div>`+
             `<button class="ph-snap" onclick="event.stopPropagation();capturePhase('${p.key}')">📸</button>`;
-        slot.addEventListener('click',()=>openModal(p.key));
+        slot.addEventListener('click',()=>{
+            if(autoMode){
+                // 自動モード：キャプチャ済みならモーダル表示
+                openModal(p.key);
+            }else{
+                // 手動モード：動画を止めてそのフレームで判定・記録
+                manualCapture(p.key);
+            }
+        });
         strip.appendChild(slot);
     });
 }
 
+// ── 手動キャプチャ（手動モード専用） ──────────────────────
+async function manualCapture(key){
+    // 動画モードなら一時停止
+    if(mode==='video'&&fileVideo.src&&!fileVideo.paused){
+        fileVideo.pause();
+        document.getElementById('btn-play').textContent='▶ 再生';
+        // 一時停止直後はフレームが確定するまで少し待つ
+        await new Promise(r=>setTimeout(r,80));
+    }
+    // カメラモードは流れているまま現在フレームを使う
+    // 骨格検出を1回実行してcurrentLandmarksを更新
+    let result=null;
+    if(mode==='cam'&&camVideo.readyState>=2){
+        result=landmarker.detectForVideo(camVideo,performance.now());
+    }else if(mode==='video'&&fileVideo.readyState>=2){
+        result=landmarker.detectForVideo(fileVideo,performance.now());
+    }else if(mode==='photo'){
+        result=landmarker.detect(photoImg);
+    }
+    if(result){
+        const ls=result.landmarks?.[0]??null;
+        if(ls){
+            currentLandmarks=ls;
+            // 骨格を再描画
+            syncCanvas();
+            ovCtx.clearRect(0,0,overlay.width,overlay.height);
+            drawSkeleton(ls);
+            updateBadges(ls);
+            const pose=classifyPose(ls);
+            updateJudgePanel(ls,pose);
+        }
+    }
+    if(!currentLandmarks){
+        // 骨格が取れない場合でもスナップショットだけ記録
+    }
+    // スロットをフラッシュして記録
+    const slot=document.querySelector(`.ph-slot[data-key="${key}"]`);
+    if(slot){
+        slot.style.background='rgba(255,200,0,.25)';
+        setTimeout(()=>slot.style.background='',300);
+    }
+    capturePhase(key);
+    // 記録後にモーダルで確認
+    setTimeout(()=>openModal(key),100);
+}
+
 function onPhaseDetected(phaseKey,ls){
     currentLandmarks=ls;
+    if(!autoMode) return; // 手動モードでは自動ハイライト・自動キャプチャしない
     document.querySelectorAll('.ph-slot').forEach(el=>
         el.classList.toggle('ph-active',el.dataset.key===phaseKey));
     if(phaseKey===lastPhaseKey) return;
