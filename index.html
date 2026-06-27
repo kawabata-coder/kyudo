@@ -82,6 +82,22 @@
         .sc-ok  {color:#ffeb3b;font-weight:700}
         .sc-bad {color:#ff5252;font-weight:700}
 
+        /* ── 三重十文字 凡例（見直しモード時のみ） ── */
+        #jumonji-legend{
+            position:absolute;top:166px;right:10px;z-index:15;
+            background:rgba(0,0,0,.82);border:1.5px solid rgba(255,255,255,.25);
+            border-radius:12px;padding:9px 12px;display:none;pointer-events:none
+        }
+        body.review-mode #jumonji-legend{display:block}
+        .jl-title{
+            font-size:11px;font-weight:700;color:#fff;margin-bottom:7px;
+            padding-bottom:5px;border-bottom:1px solid rgba(255,255,255,.2)
+        }
+        .jl-row{display:flex;align-items:center;font-size:12px;color:#fff;margin:5px 0}
+        .jl-swatch{display:inline-block;width:22px;height:0;margin-right:8px;flex-shrink:0}
+        .jl-std{border-top:3px solid #ff2d78}
+        .jl-you{border-top:3px dashed #00e5ff}
+
         /* ── フェーズストリップ ── */
         #phase-strip{
             position:absolute;top:76px;left:0;right:0;height:88px;z-index:18;
@@ -333,6 +349,13 @@
         <div class="j-row" id="jj2"><span class="j-name">②腰水平</span><span>--</span></div>
         <div class="j-row" id="jj3"><span class="j-name">③体軸</span><span>--</span></div>
         <div id="judge-specific"></div>
+    </div>
+
+    <!-- 三重十文字 凡例（見直しモード時のみ表示） -->
+    <div id="jumonji-legend">
+        <div class="jl-title">三重十文字ガイド</div>
+        <div class="jl-row"><span class="jl-swatch jl-std"></span>基準（理想）</div>
+        <div class="jl-row"><span class="jl-swatch jl-you"></span>あなたのライン</div>
     </div>
 
     <!-- 角度バッジ -->
